@@ -40,9 +40,9 @@ Esta implantação resulta nos seguintes recursos no Azure:
 
 <img width="618" alt="image" src="https://github.com/lsmatias/Azure-Bicep/assets/28391885/49633279-a831-430e-be7a-aa520c381b40">
 
-O arquivo Bicep principal
+O arquivo Bicep main
 Este é o arquivo Bicep principal que será implantado no Azure.
-Por favor, esteja ciente de que você precisa alterar o valor subscriptionID com o ID da sua assinatura Azure.
+Por favor, esteja ciente de que você precisa alterar o valor `subscriptionID` com o ID da sua assinatura Azure.
 
 <img width="20" alt="image" src="https://github.com/lsmatias/Azure-Bicep/assets/28391885/7556e2b2-0b22-4a2b-a40c-3175301d7357">
 Bicep
@@ -155,6 +155,9 @@ Nós utilizamos a mesma identidade gerenciada para acessar os dois grupos de rec
 
 
 Dentro do arquivo `aib-role.bicep`, criamos a Identidade Gerenciada atribuída pelo usuário e a Função Personalizada.
+
+<img width="20" alt="image" src="https://github.com/lsmatias/Azure-Bicep/assets/28391885/7556e2b2-0b22-4a2b-a40c-3175301d7357">
+Bicep
 
 ```
 param location string
