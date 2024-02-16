@@ -1,0 +1,111 @@
+param location string
+param subscriptionID string
+param galleryName string
+param azureImageBuilderName string
+param galleryImageName string
+param runOutputName string
+param RGnameAIB string
+param RGnameAVDimage string
+param idNameid string
+
+
+resource acg 'Microsoft.Compute/galleries@2022-08-03' = {
+  name: galleryName
+  location: location
+  properties: {
+    description: 'mygallery'
+  }
+}
+
+resource ign 'Microsoft.Compute/galleries/images@2022-08-03' = {
+  name: galleryImageName
+  location: location
+  parent: acg
+  properties: {
+    identifier: {
+      offer: 'windows-11'
+      publisher: 'microsoftwindowsdesktop'
+      sku: 'win11-23h2-avd'
+    }
+    osState: 'Generalized' 
+    osType: 'Windows'
+    hyperVGeneration: 'V2'
+  }
+}
+
+resource azureImageBuilder 'Microsoft.VirtualMachineImages/imageTemplates@2022-02-14' = {
+  name: azureImageBuilderName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: json('{"${idNameid}":{}')
+  }
+  properties: {
+    buildTimeoutInMinutes: 60
+    distribute: [
+      {
+        type: 'SharedImage'
+        galleryImageId: ign.id
+        runOutputName: runOutputName
+        replicationRegions: [
+          location
+        ]
+      }
+    ]
+    source: {
+      type: 'PlatformImage'
+      publisher: 'microsoftwindowsdesktop'
+      offer:'windows-11'
+      sku: 'win11-23h2-avd'
+      version: 'latest'
+    }
+    stagingResourceGroup: '/subscriptions/${subscriptionID}/resourceGroups/${RGnameAIB}'
+    vmProfile: {
+      vmSize: 'Standard_D2s_v3'
+      osDiskSizeGB: 127
+    }
+    customize: [
+      {
+        type: 'PowerShell'
+        name: 'GetAZCopy'
+        inline: [
+          'New-Item -Type Directory -Path c:\\ -Name temp'
+          'invoke-webrequest -uri https://aka.ms/downloadazcopy-v10-windows -OutFile c:\\temp\\azcopy.zip'
+          'Expand-Archive c:\\temp\\azcopy.zip c:\\temp'
+          'copy-item C:\\temp\\azcopy_windows_amd64_*\\azcopy.exe\\ -Destination c:\\temp'
+        ]
+      }
+    ]
+  }
+}
+
+resource buildimage 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: 'buildimage'
+  location: location
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: json('{"${idNameid}":{}')
+  }
+  properties: {
+    azCliVersion: '2.52.0' 
+    retentionInterval: 'P1D'
+    environmentVariables: [
+      {
+        name: 'azureImageBuilderName'
+        value: azureImageBuilderName
+      }
+      {
+        name: 'RGnameAVDimage'
+        value: RGnameAVDimage
+      }
+    ]
+    scriptContent: '''
+      az login --identity
+      az image builder run -n $azureImageBuilderName -g $RGnameAVDimage --no-wait
+    '''
+  }
+  dependsOn: [
+    azureImageBuilder
+  ]
+}
