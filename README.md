@@ -1,3 +1,7 @@
+<img width="700" alt="image" src="https://github.com/lsmatias/Azure-Bicep/assets/28391885/556559f8-28d0-4f06-b720-4c6be99d1ba1">
+
+
+
 # Automatize o Azure Image Builder no Bicep com custom builder resource group
 
 Com o Azure Image Builder (AIB), podemos automatizar o processo de construção de imagens para uso em um ambiente Azure Virtual Desktop, por exemplo. AIB cria automaticamente um grupo de recursos para armazenar recursos temporários necessários para construir a imagem (conta de armazenamento, vnet, vm, disco, etc.). Quando a construção é concluída, o Azure exclui a maioria desses recursos. Este grupo de recursos de construção recebe um nome aleatório que começa com IT_. Quando você tem políticas em vigor que exigem uma determinada convenção de nomenclatura ou exigem determinadas tags em um grupo de recursos, a construção do AIB falhará. Mas felizmente há uma maneira de garantir que o grupo de recursos utilize a convenção de nomenclatura e as tags corretas.
