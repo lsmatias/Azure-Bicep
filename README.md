@@ -22,15 +22,15 @@ Neste exemplo, todos os grupos de recursos devem começar com RG- e exigir as ta
 
 Os arquivos Bicep completos podem ser encontrados no meu repositório GitHub aqui. A automação contém cinco arquivos Bicep:
 
-aib-main.bicep
+* aib-main.bicep
 
-aib-rgs.bicep
+* aib-rgs.bicep
 
-aib-role.bicep
+* aib-role.bicep
 
-aib-roletemp.bicep
+* aib-roletemp.bicep
 
-aib-image.bicep
+* aib-image.bicep
 
 Esta implantação resulta nos seguintes recursos no Azure:
 
@@ -116,7 +116,7 @@ Existem quatro módulos invocados pelo arquivo. Com os parâmetros tags e RGname
 
 # Criando Resource Group
 
-A criação dos grupos de recursos é feita no arquivo aib-rgs.bicep.
+A criação dos grupos de recursos é feita no arquivo `aib-rgs.bicep`.
 
 <img width="20" alt="image" src="https://github.com/lsmatias/Azure-Bicep/assets/28391885/7556e2b2-0b22-4a2b-a40c-3175301d7357">
 Bicep
@@ -147,5 +147,210 @@ resource RGAVDimagebuild 'Microsoft.Resources/resourceGroups@2023-07-01' = {
 Criando a Identidade Gerenciada e a Função Personalizada
 Nós utilizamos a mesma identidade gerenciada para acessar os dois grupos de recursos e construir a imagem.
 
+<img width="420" alt="image" src="https://github.com/lsmatias/Azure-Bicep/assets/28391885/532ed066-46f9-474c-892d-5a4948e33887">
 
 
+Dentro do arquivo `aib-role.bicep`, criamos a Identidade Gerenciada atribuída pelo usuário e a Função Personalizada.
+
+```
+param location string
+param baseTime string
+
+var idAIBName = 'AIB${baseTime}'
+var roleDefName = 'Azure Image Builder Def ${baseTime}'
+
+
+// Create a user assigned identity
+resource aibId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-07-31-preview' = {
+  name: idAIBName
+  location: location
+}
+
+output idName string = aibId.name
+output idNameID string = aibId.id
+
+// Create a custom role
+resource roleDef 'Microsoft.Authorization/roleDefinitions@2022-05-01-preview' = {
+  name: guid(resourceGroup().id, 'bicep')
+  properties: {
+    roleName: roleDefName
+    description: 'Image Builder access to create resources for the image build'
+    type: 'customRole'
+    permissions: [
+      {
+        actions: [
+          'Microsoft.Compute/galleries/read'
+          'Microsoft.Compute/galleries/images/read'
+          'Microsoft.Compute/galleries/images/versions/read'
+          'Microsoft.Compute/galleries/images/versions/write'
+          'Microsoft.Compute/images/write'
+          'Microsoft.Compute/images/read'
+          'Microsoft.Compute/images/delete'
+
+          'Microsoft.VirtualMachineImages/imageTemplates/run/action'
+        ]
+        notActions: []
+      }
+    ]
+    assignableScopes: [
+      resourceGroup().id
+    ]
+  }
+}
+
+resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, aibId.name)
+  properties: {
+    principalId: aibId.properties.principalId
+    roleDefinitionId: roleDef.id
+    principalType: 'ServicePrincipal'
+  }
+}
+```
+O valor name dos três recursos criados aqui todos têm variáveis neles. Eu prefiro isso para acompanhar minha implantação de imagem.
+`Microsoft.VirtualMachineImages/imageTemplates/run/action` A ação não é necessária para as ações feitas no grupo de recursos RG-image. Mas é necessária para a construção da imagem no RG-temp e eu quero usar a mesma Identidade Gerenciada para isso.
+
+Defina a Função Personalizada no grupo de recursos de construção. No arquivo `aib-roletemp.bicep`, atribuímos a combinação da Identidade Gerenciada e da Função Personalizada ao grupo de recursos de construção (RG-temp).
+
+```
+param baseTime string
+param subscriptionID string
+param RGnameAIB string
+param idName string
+param RGnameAVDimage string
+
+resource aibId 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-07-31-preview' existing = {
+  name: idName
+  scope: resourceGroup(RGnameAVDimage)
+}
+
+resource roleAssignmentAIBrg 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, aibId.name, baseTime)
+  properties: {
+    principalId: aibId.properties.principalId
+    roleDefinitionId: '/subscriptions/${subscriptionID}/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c'
+    principalType: 'ServicePrincipal'
+    scope: '/subscriptions/${subscriptionID}/resourcegroups/${RGnameAIB}'
+  }
+}
+```
+Criar o Build da imagem.
+No recurso `Microsoft.VirtualMachineImages/imageTemplates`, criamos a imagem e podemos personalizá-la para atender às nossas necessidades.
+
+```
+param location string
+param subscriptionID string
+param galleryName string
+param azureImageBuilderName string
+param galleryImageName string
+param runOutputName string
+param RGnameAIB string
+param RGnameAVDimage string
+param idNameid string
+
+
+resource acg 'Microsoft.Compute/galleries@2022-08-03' = {
+  name: galleryName
+  location: location
+  properties: {
+    description: 'mygallery'
+  }
+}
+
+resource ign 'Microsoft.Compute/galleries/images@2022-08-03' = {
+  name: galleryImageName
+  location: location
+  parent: acg
+  properties: {
+    identifier: {
+      offer: 'windows-11'
+      publisher: 'microsoftwindowsdesktop'
+      sku: 'win11-23h2-avd'
+    }
+    osState: 'Generalized' 
+    osType: 'Windows'
+    hyperVGeneration: 'V2'
+  }
+}
+
+resource azureImageBuilder 'Microsoft.VirtualMachineImages/imageTemplates@2022-02-14' = {
+  name: azureImageBuilderName
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: json('{"${idNameid}":{}')
+  }
+  properties: {
+    buildTimeoutInMinutes: 60
+    distribute: [
+      {
+        type: 'SharedImage'
+        galleryImageId: ign.id
+        runOutputName: runOutputName
+        replicationRegions: [
+          location
+        ]
+      }
+    ]
+    source: {
+      type: 'PlatformImage'
+      publisher: 'microsoftwindowsdesktop'
+      offer:'windows-11'
+      sku: 'win11-23h2-avd'
+      version: 'latest'
+    }
+    stagingResourceGroup: '/subscriptions/${subscriptionID}/resourceGroups/${RGnameAIB}'
+    vmProfile: {
+      vmSize: 'Standard_D2s_v3'
+      osDiskSizeGB: 127
+    }
+    customize: [
+      {
+        type: 'PowerShell'
+        name: 'GetAZCopy'
+        inline: [
+          'New-Item -Type Directory -Path c:\\ -Name temp'
+          'invoke-webrequest -uri https://aka.ms/downloadazcopy-v10-windows -OutFile c:\\temp\\azcopy.zip'
+          'Expand-Archive c:\\temp\\azcopy.zip c:\\temp'
+          'copy-item C:\\temp\\azcopy_windows_amd64_*\\azcopy.exe\\ -Destination c:\\temp'
+        ]
+      }
+    ]
+  }
+}
+
+resource buildimage 'Microsoft.Resources/deploymentScripts@2023-08-01' = {
+  name: 'buildimage'
+  location: location
+  kind: 'AzureCLI'
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: json('{"${idNameid}":{}')
+  }
+  properties: {
+    azCliVersion: '2.52.0' 
+    retentionInterval: 'P1D'
+    environmentVariables: [
+      {
+        name: 'azureImageBuilderName'
+        value: azureImageBuilderName
+      }
+      {
+        name: 'RGnameAVDimage'
+        value: RGnameAVDimage
+      }
+    ]
+    scriptContent: '''
+      az login --identity
+      az image builder run -n $azureImageBuilderName -g $RGnameAVDimage --no-wait
+    '''
+  }
+  dependsOn: [
+    azureImageBuilder
+  ]
+}
+```
+
+A construção real da imagem é feita no Azure CLI. Eu defini a maior parte da imagem diretamente no código porque torna mais fácil de ler. Em produção, eu faria mais uso de parâmetros.
+Para mostrar como as personalizações são feitas, adicionei o AZCopy à imagem. A conta de armazenamento que foi criada automaticamente contém o arquivo de log da construção. Isso é muito útil quando você adiciona mais personalizações do que o AZCopy.
+Sinta-se à vontade para experimentar várias personalizações. Isso torna tudo mais divertido!
